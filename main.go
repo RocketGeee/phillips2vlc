@@ -4,9 +4,7 @@ package main
 
 import (
     "fmt"
-    "os"
     "os/exec"
-    "time"
 
     "github.com/karalabe/hid"
 )
