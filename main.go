@@ -52,8 +52,8 @@ func initializeUSBDevice(vendorID, productID uint16) (*hid.Device, error) {
 }
 
 // readFootPedalEvent reads an event from the foot pedal
-func readFootPedalEvent(device *hid.Device) ([]byte, error) {
-    data := make([]byte, 8)
+func readFootPedalEvent(device *hid.Device) ([]uint16, error) {
+    data := make([]uint16, 8)
     _, err := device.Read(data)
     if err != nil {
         return nil, err
@@ -62,7 +62,7 @@ func readFootPedalEvent(device *hid.Device) ([]byte, error) {
 }
 
 // processEvent processes the foot pedal event and controls VLC
-func processEvent(data []byte) {
+func processEvent(data []uint16) {
     switch data[0] {
     case 289: // Code for play button
         executeVLCCommand("play")
