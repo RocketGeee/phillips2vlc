@@ -1,135 +1,84 @@
+// main.go
+
 package main
 
 import (
-	"fmt"
-	"log"
-	"os"
+    "fmt"
+    "os"
+    "os/exec"
+    "time"
 
-	"github.com/karalabe/hid"
-	"github.com/reiver/go-telnet"
+    "github.com/karalabe/hid"
 )
 
-// Pedal constants
+// Constants for USB device
 const (
-	PedalRight  byte = 0x4
-	PedalMiddle byte = 0x2
-	PedalLeft   byte = 0x1
+    VendorID  = 0x0911
+    ProductID = 0x1844
 )
-
-type event struct {
-	down  bool
-	pedal byte
-}
-
-var (
-	pedalLeftUp     = event{down: false, pedal: PedalLeft}
-	pedalLeftDown   = event{down: true, pedal: PedalLeft}
-	pedalMiddleUp   = event{down: false, pedal: PedalMiddle}
-	pedalMiddleDown = event{down: true, pedal: PedalMiddle}
-	pedalRightUp    = event{down: false, pedal: PedalRight}
-	pedalRightDown  = event{down: true, pedal: PedalRight}
-)
-
-func createPedalEvent(prevBuf, buf []byte, pedal byte) event {
-	if buf[0]&pedal == pedal && prevBuf[0]&pedal != pedal {
-		return event{down: true, pedal: pedal}
-	}
-
-	if buf[0]&pedal != pedal && prevBuf[0]&pedal == pedal {
-		return event{down: false, pedal: pedal}
-	}
-
-	return event{}
-}
-
-func eventLoop(eventChannel chan event) {
-	deviceInfos := hid.Enumerate(0x5f3, 0x00ff)
-	if len(deviceInfos) != 1 {
-		log.Fatalf("Got wrong number of devices: %d", len(deviceInfos))
-	}
-
-	deviceInfo := deviceInfos[0]
-	device, err := deviceInfo.Open()
-	if err != nil {
-		log.Fatalf("Oh no! %v", err)
-	}
-
-	buf := []byte{0}
-	prevBuf := []byte{0}
-	for {
-		_, err := device.Read(buf)
-		if err != nil {
-			log.Fatalf("Oh no! %v", err)
-		}
-
-		if e := createPedalEvent(prevBuf, buf, PedalLeft); e.pedal == PedalLeft {
-			eventChannel <- e
-		}
-		if e := createPedalEvent(prevBuf, buf, PedalMiddle); e.pedal == PedalMiddle {
-			eventChannel <- e
-		}
-		if e := createPedalEvent(prevBuf, buf, PedalRight); e.pedal == PedalRight {
-			eventChannel <- e
-		}
-
-		prevBuf[0] = buf[0]
-	}
-}
 
 func main() {
-	if len(os.Args) != 2 {
-		log.Fatal("Requries one argument: the song to be played")
-	}
-	myMP3 := os.Args[1]
+    // Initialize USB device
+    device, err := initializeUSBDevice(VendorID, ProductID)
+    if err != nil {
+        fmt.Println("Error initializing USB device:", err)
+        return
+    }
+    defer device.Close()
 
-	eventChannel := make(chan event)
+    // Main event loop
+    for {
+        // Read foot pedal events
+        data, err := readFootPedalEvent(device)
+        if err != nil {
+            fmt.Println("Error reading from USB device:", err)
+            continue
+        }
 
-	conn, err := telnet.DialTo("localhost:9001")
-	if err != nil {
-		log.Fatalf("are you running vlc with: vlc -I rc --rc-host localhost:9001")
-	}
-	conn.Write([]byte("add " + myMP3 + "\n"))
+        // Process the foot pedal event
+        processEvent(data)
+    }
+}
 
-	rate := 1.0
+// initializeUSBDevice initializes the USB device
+func initializeUSBDevice(vendorID, productID uint16) (*hid.Device, error) {
+    devices := hid.Enumerate(vendorID, productID)
+    if len(devices) == 0) {
+        return nil, fmt.Errorf("no device found")
+    }
+    device, err := devices[0].Open()
+    if err != nil {
+        return nil, err
+    }
+    return device, nil
+}
 
-	go eventLoop(eventChannel)
-	for {
-		e := <-eventChannel
-		// do things!
+// readFootPedalEvent reads an event from the foot pedal
+func readFootPedalEvent(device *hid.Device) ([]byte, error) {
+    data := make([]byte, 8)
+    _, err := device.Read(data)
+    if err != nil {
+        return nil, err
+    }
+    return data, nil
+}
 
-		if e == pedalLeftDown {
-			fmt.Println("Pedal Left down")
-			switch {
-			case rate == 1.0:
-				rate = 0.5
-			case rate == 0.5:
-				rate = 3.0
-			case rate == 3.0:
-				rate = 1.0
-			}
-			conn.Write([]byte(fmt.Sprintf("rate %f\n", rate)))
-			fmt.Println(rate)
-		}
-		if e == pedalLeftUp {
-			fmt.Println("Pedal Left up")
-			// conn.Write([]byte("rate 1.0\n"))
-		}
+// processEvent processes the foot pedal event and controls VLC
+func processEvent(data []byte) {
+    switch data[0] {
+    case 289: // Code for play button
+        executeVLCCommand("play")
+    // Add other button codes here as needed
+    default:
+        fmt.Println("Unknown event:", data)
+    }
+}
 
-		if e == pedalMiddleDown {
-			fmt.Println("Pedal Middle down")
-			conn.Write([]byte("play\n"))
-		}
-		if e == pedalMiddleUp {
-			fmt.Println("Pedal Middle up")
-			conn.Write([]byte("pause\n"))
-		}
-
-		if e == pedalRightDown {
-			fmt.Println("Pedal Right down")
-			conn.Write([]byte("rewind\nrewind\n"))
-		}
-		if e == pedalRightUp {
-			fmt.Println("Pedal Right up")
-		}
-	}
+// executeVLCCommand sends a command to VLC
+func executeVLCCommand(command string) {
+    cmd := exec.Command("vlc", "--remote", command)
+    err := cmd.Run()
+    if err != nil {
+        fmt.Println("Error executing VLC command:", err)
+    }
 }
