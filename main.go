@@ -43,7 +43,7 @@ func main() {
 // initializeUSBDevice initializes the USB device
 func initializeUSBDevice(vendorID, productID uint16) (*hid.Device, error) {
     devices := hid.Enumerate(vendorID, productID)
-    if len(devices) == 0) {
+    if len(devices) == 0 {
         return nil, fmt.Errorf("no device found")
     }
     device, err := devices[0].Open()
